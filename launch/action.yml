@@ -1,0 +1,106 @@
+name: 'Launch an Incus instance'
+description: 'Launch an Incus instance (container or VM) and optionally wait until it is usable'
+branding:
+  icon: 'play'
+  color: 'blue'
+
+inputs:
+  image:
+    description: 'Image to launch, e.g. images:debian/trixie'
+    required: true
+  name:
+    description: 'Name to give the new instance'
+    required: true
+  vm:
+    default: 'false'
+    description: 'Launch as a virtual machine instead of a system container (true/false)'
+    required: false
+  config:
+    default: ''
+    description: 'Newline-separated KEY=VALUE instance config (each becomes -c KEY=VALUE), e.g. limits.cpu=2'
+    required: false
+  profiles:
+    default: ''
+    description: 'Comma-separated profiles to apply (each becomes -p NAME)'
+    required: false
+  workspace:
+    default: 'true'
+    description: 'Share the workspace ($GITHUB_WORKSPACE) into the instance at the same path (true/false)'
+    required: false
+  wait:
+    default: 'exec'
+    description: 'Wait before returning: none | exec (until "incus exec" works) | cloud-init (exec, then "cloud-init status --wait")'
+    required: false
+  timeout:
+    default: '120'
+    description: 'Seconds to wait for exec readiness when wait is exec/cloud-init'
+    required: false
+
+outputs:
+  name:
+    description: 'Name of the launched instance'
+    value: '${{ inputs.name }}'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INPUT_IMAGE: '${{ inputs.image }}'
+        INPUT_NAME: '${{ inputs.name }}'
+        INPUT_VM: '${{ inputs.vm }}'
+        INPUT_CONFIG: '${{ inputs.config }}'
+        INPUT_PROFILES: '${{ inputs.profiles }}'
+        INPUT_WORKSPACE: '${{ inputs.workspace }}'
+        INPUT_WAIT: '${{ inputs.wait }}'
+        INPUT_TIMEOUT: '${{ inputs.timeout }}'
+      run: |
+        set -euo pipefail
+        case "$INPUT_VM" in true|false) ;; *) echo "::error::vm must be true or false (got: $INPUT_VM)"; exit 1;; esac
+        case "$INPUT_WORKSPACE" in true|false) ;; *) echo "::error::workspace must be true or false (got: $INPUT_WORKSPACE)"; exit 1;; esac
+        case "$INPUT_WAIT" in none|exec|cloud-init) ;; *) echo "::error::wait must be none | exec | cloud-init (got: $INPUT_WAIT)"; exit 1;; esac
+        case "$INPUT_TIMEOUT" in ''|*[!0-9]*) echo "::error::timeout must be a positive integer of seconds (got: $INPUT_TIMEOUT)"; exit 1;; esac
+
+        # init (not launch), so the shared disk devices can be added before the instance starts — the
+        # mounts (and their idmap) are then set up at boot: reliable shift for containers, virtiofs for VMs.
+        args=(init "$INPUT_IMAGE" "$INPUT_NAME")
+        [ "$INPUT_VM" = true ] && args+=(--vm)
+        # Instance config, one -c KEY=VALUE per non-empty line.
+        if [ -n "$INPUT_CONFIG" ]; then
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            args+=(-c "$line")
+          done <<<"$INPUT_CONFIG"
+        fi
+        # Profiles, one -p NAME per comma-separated entry.
+        if [ -n "$INPUT_PROFILES" ]; then
+          IFS=',' read -ra PR <<<"$INPUT_PROFILES"
+          for p in "${PR[@]}"; do
+            p="$(echo "$p" | xargs)"  # trim
+            [ -n "$p" ] && args+=(-p "$p")
+          done
+        fi
+        incus "${args[@]}"
+        # Share host dirs at their real paths: the workspace, and $RUNNER_TEMP so exec can pass through
+        # $GITHUB_ENV/$GITHUB_STEP_SUMMARY and its result file. Containers get shift=true so the instance
+        # root can write the runner-owned files; VMs use virtiofs, which doesn't take shift.
+        shiftopt=()
+        [ "$INPUT_VM" = false ] && shiftopt=(shift=true)
+        [ "$INPUT_WORKSPACE" = true ] && incus config device add "$INPUT_NAME" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" "${shiftopt[@]}" >/dev/null
+        [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" "${shiftopt[@]}" >/dev/null
+        incus start "$INPUT_NAME"
+
+        # Wait until "incus exec" works (a fresh VM's agent takes a few seconds; containers are instant).
+        if [ "$INPUT_WAIT" != none ]; then
+          end=$((SECONDS + INPUT_TIMEOUT))
+          until incus exec "$INPUT_NAME" -- true 2>/dev/null; do
+            if [ "$SECONDS" -ge "$end" ]; then
+              echo "::error::instance $INPUT_NAME not reachable via incus exec after ${INPUT_TIMEOUT}s"
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$INPUT_WAIT" = cloud-init ]; then
+            incus exec "$INPUT_NAME" -- cloud-init status --wait
+          fi
+        fi

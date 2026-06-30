@@ -1,0 +1,280 @@
+name: Integration
+
+on:
+  push:
+    branches: ['**']   # any branch (not tags)
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Lint the workflows for security issues (zizmor). The VM/container matrix is gated on this passing,
+  # so a finding halts the expensive run.
+  security:
+    name: GHA security analysis (zizmor)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+
+  vm-and-container:
+    needs: security
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.channel }}
+    # arm64 hosted runners use the -arm label suffix.
+    runs-on: ${{ matrix.arch == 'arm64' && format('ubuntu-{0}-arm', matrix.os) || format('ubuntu-{0}', matrix.os) }}
+    # The VM steps run only where /dev/kvm exists (amd64 hosted runners today); elsewhere they're
+    # skipped and the job still passes. Container steps run everywhere.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['22.04', '24.04']
+        channel: ['stable', 'lts-7.0', 'lts-6.0']
+        arch: ['amd64', 'arm64']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # --- setup action ---
+      - name: Setup Zabbly Incus
+        id: setup
+        uses: ./setup
+        with:
+          channel: ${{ matrix.channel }}
+
+      - name: Report environment
+        run: |
+          {
+            echo "### ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.channel }} — environment"
+            echo '```'
+            echo "runner:  $(. /etc/os-release; echo "$PRETTY_NAME") $(uname -m)"
+            echo "incus:   ${{ steps.setup.outputs.incus-version }}"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # --- container path: smoke-tests launch + exec + workspace mount (works on every arch) ---
+
+      - name: Launch a container (launch action)
+        uses: ./launch
+        with:
+          image: images:debian/trixie/cloud
+          name: c1
+          wait: cloud-init
+
+      # exec smoke; apt-get update also proves the container's outbound network.
+      - name: Exec in the container (exec action)
+        uses: ./exec
+        with:
+          instance: c1
+          run: |
+            cat /etc/os-release
+            apt-get update
+
+      # Workspace mount: the host checkout is visible inside, and a file written inside lands on the host.
+      - name: Workspace mount round-trip (container)
+        uses: ./exec
+        with:
+          instance: c1
+          run: |
+            test -f README.md
+            echo written-by-c1 > mount-probe-c1.txt
+      - name: Verify container mount write reached the host
+        run: |
+          set -euo pipefail
+          grep -q written-by-c1 mount-probe-c1.txt
+          ls -l mount-probe-c1.txt
+
+      # env forwarding (runner env visible inside), $GITHUB_ENV bridge, and the $INCUS_RESULT capture.
+      - name: Env forwarding + GITHUB_ENV bridge + output (exec action)
+        id: smoke
+        uses: ./exec
+        with:
+          instance: c1
+          run: |
+            test -n "$GITHUB_REPOSITORY"
+            echo "SMOKE_ENV=ok-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+            echo "- exec smoke on run $GITHUB_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+            echo "marker-$GITHUB_RUN_ID" >> "$INCUS_RESULT"
+      - name: Verify env bridge + output
+        env:
+          SMOKE_OUTPUT: ${{ steps.smoke.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "$SMOKE_ENV" = "ok-$GITHUB_RUN_ID"
+          echo "$SMOKE_OUTPUT" | grep -q "marker-$GITHUB_RUN_ID"
+          echo "env bridge + output OK"
+
+      # Discovery: what uid/gid the instance runs as, and how the shared paths + a file it writes look
+      # from the host vs from inside — to see the idmap (or lack of one).
+      - name: Discovery — ids, ownership, perms (container)
+        run: |
+          set +e
+          probe="$GITHUB_WORKSPACE/.disco-c1"
+          incus exec c1 -- sh -c "echo x > '$probe'" 2>/dev/null
+          {
+            echo "### Discovery — container c1"
+            echo '```'
+            echo "host id:  $(id -u):$(id -g) ($(id -un))"
+            echo "c1   id:  $(incus exec c1 -- id -u):$(incus exec c1 -- id -g)"
+            echo
+            printf '%-12s %-14s %-14s %s\n' item host-owner in-owner perms
+            for spec in "workspace:$GITHUB_WORKSPACE" "runner_temp:$RUNNER_TEMP" "github_env:$GITHUB_ENV" "probe-file:$probe"; do
+              label=${spec%%:*}; p=${spec#*:}
+              printf '%-12s %-14s %-14s %s\n' "$label" \
+                "$(stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(incus exec c1 -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(stat -c '%a' "$p" 2>/dev/null || echo -)"
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f "$probe"
+
+      # --- VM path: run only where /dev/kvm exists, else skip and note it in the summary ---
+      - name: Detect VM capability
+        id: caps
+        run: |
+          if [ -e /dev/kvm ]; then echo "can-vm=true" >> "$GITHUB_OUTPUT"; else echo "can-vm=false" >> "$GITHUB_OUTPUT"; fi
+      - name: VM steps skipped (no /dev/kvm)
+        if: steps.caps.outputs.can-vm != 'true'
+        run: echo "⚠️ VM steps skipped — no \`/dev/kvm\` on this ${{ runner.arch }} runner." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Launch a VM (launch action)
+        if: steps.caps.outputs.can-vm == 'true'
+        uses: ./launch
+        with:
+          image: images:debian/trixie
+          name: v
+          vm: true
+          config: |
+            limits.cpu=2
+            limits.memory=2GiB
+
+      # apt-get update = real outbound traffic through the DOCKER-USER-governed FORWARD path.
+      - name: VM outbound network through the Docker firewall (exec action)
+        if: steps.caps.outputs.can-vm == 'true'
+        uses: ./exec
+        with:
+          instance: v
+          run: |
+            apt-get update
+            echo NET=OK
+
+      # Same mount round-trip over virtiofs; the host-side ls shows the resulting ownership.
+      - name: Workspace mount round-trip (VM)
+        if: steps.caps.outputs.can-vm == 'true'
+        uses: ./exec
+        with:
+          instance: v
+          run: |
+            test -f README.md
+            echo written-by-v > mount-probe-v.txt
+      - name: Verify VM mount write reached the host
+        if: steps.caps.outputs.can-vm == 'true'
+        run: |
+          set -euo pipefail
+          grep -q written-by-v mount-probe-v.txt
+          ls -l mount-probe-v.txt
+
+      # Same env/result path on the VM — exercises the hot-plugged $RUNNER_TEMP mount + virtiofs write-back.
+      - name: Env bridge + result on the VM (exec action)
+        if: steps.caps.outputs.can-vm == 'true'
+        id: vmsmoke
+        uses: ./exec
+        with:
+          instance: v
+          run: |
+            echo "VM_SMOKE=ok-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+            echo "vm-marker-$GITHUB_RUN_ID" >> "$INCUS_RESULT"
+      - name: Verify VM env bridge + result
+        if: steps.caps.outputs.can-vm == 'true'
+        env:
+          VM_RESULT: ${{ steps.vmsmoke.outputs.result }}
+        run: |
+          set -euo pipefail
+          test "$VM_SMOKE" = "ok-$GITHUB_RUN_ID"
+          echo "$VM_RESULT" | grep -q "vm-marker-$GITHUB_RUN_ID"
+          echo "VM env + result OK"
+
+      - name: Discovery — ids, ownership, perms (VM)
+        if: steps.caps.outputs.can-vm == 'true'
+        run: |
+          set +e
+          probe="$GITHUB_WORKSPACE/.disco-v"
+          incus exec v -- sh -c "echo x > '$probe'" 2>/dev/null
+          {
+            echo "### Discovery — VM v"
+            echo '```'
+            echo "host id:  $(id -u):$(id -g) ($(id -un))"
+            echo "v    id:  $(incus exec v -- id -u):$(incus exec v -- id -g)"
+            echo
+            printf '%-12s %-14s %-14s %s\n' item host-owner in-owner perms
+            for spec in "workspace:$GITHUB_WORKSPACE" "runner_temp:$RUNNER_TEMP" "github_env:$GITHUB_ENV" "probe-file:$probe"; do
+              label=${spec%%:*}; p=${spec#*:}
+              printf '%-12s %-14s %-14s %s\n' "$label" \
+                "$(stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(incus exec v -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(stat -c '%a' "$p" 2>/dev/null || echo -)"
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f "$probe"
+
+      # A real VM applies systemd sandbox directives that a system container masks. Assert four, each
+      # on a different subsystem (each grep -q is an assertion):
+      #   ProcSubset=pid          -> /proc/cpuinfo hidden       (CPUINFO=BLOCKED)
+      #   ProtectKernelTunables   -> /proc/sys read-only        (PROCSYS=READONLY)
+      #   ProtectSystem=strict    -> /usr read-only             (USR=READONLY)
+      #   ProtectControlGroups    -> /sys/fs/cgroup read-only   (CGROUP=READONLY)
+      - name: VM sandbox-fidelity probe (exec action)
+        if: steps.caps.outputs.can-vm == 'true'
+        uses: ./exec
+        with:
+          instance: v
+          shell: bash
+          run: |
+            echo "guest: $(. /etc/os-release; echo "$PRETTY_NAME")"
+            systemctl --version | head -1
+            # Probe script (printf, not heredoc, to stay in the YAML block scalar). Runs as root, so
+            # only the sandbox blocks these writes. No set -e: every check must run.
+            printf "%s\n" \
+              "#!/bin/sh" \
+              "cat /proc/cpuinfo >/dev/null 2>&1 && echo CPUINFO=READABLE || echo CPUINFO=BLOCKED" \
+              "if ( echo 0 >/proc/sys/kernel/dmesg_restrict ) 2>/dev/null; then echo PROCSYS=WRITABLE; else echo PROCSYS=READONLY; fi" \
+              "if ( touch /usr/.sandbox-probe ) 2>/dev/null; then echo USR=WRITABLE; rm -f /usr/.sandbox-probe; else echo USR=READONLY; fi" \
+              "if ( mkdir /sys/fs/cgroup/.sandbox-probe ) 2>/dev/null; then echo CGROUP=WRITABLE; rmdir /sys/fs/cgroup/.sandbox-probe; else echo CGROUP=READONLY; fi" \
+              "exit 0" \
+              > /usr/local/bin/sandbox-probe.sh
+            chmod +x /usr/local/bin/sandbox-probe.sh
+            printf "%s\n" \
+              "[Service]" \
+              "Type=oneshot" \
+              "ProtectSystem=strict" \
+              "ProtectProc=noaccess" \
+              "ProcSubset=pid" \
+              "ProtectKernelTunables=true" \
+              "ProtectControlGroups=true" \
+              "ExecStart=/usr/local/bin/sandbox-probe.sh" \
+              > /etc/systemd/system/sandbox-probe.service
+            systemctl daemon-reload
+            systemctl start sandbox-probe.service
+            out=$(journalctl -u sandbox-probe.service -o cat)
+            echo "$out"
+            echo "$out" | grep -q CPUINFO=BLOCKED
+            echo "$out" | grep -q PROCSYS=READONLY
+            echo "$out" | grep -q USR=READONLY
+            echo "$out" | grep -q CGROUP=READONLY
+
+      - name: Cleanup
+        if: always()
+        run: incus delete -f v c1 2>/dev/null || true

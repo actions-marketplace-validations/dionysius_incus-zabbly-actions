@@ -1,0 +1,113 @@
+name: 'Setup Zabbly Incus'
+description: 'Install & configure Incus (Zabbly packages) on a runner, ready for containers and VMs'
+branding:
+  icon: 'box'
+  color: 'blue'
+
+inputs:
+  channel:
+    default: 'stable'
+    description: 'Zabbly incus line: stable, daily, or an lts-X.Y line (e.g. lts-7.0)'
+    required: false
+  group:
+    default: 'adm'
+    description: 'Socket group for non-sudo incus access (must be a group the runner user is already in)'
+    required: false
+  preseed:
+    default: ''
+    description: 'incus admin init preseed YAML (empty = --minimal)'
+    required: false
+  bridges:
+    default: 'incusbr0'
+    description: 'Comma-separated bridges to allow through the Docker firewall'
+    required: false
+  firewall:
+    default: 'docker-user'
+    description: 'Docker coexistence strategy: docker-user | flush | none'
+    required: false
+
+outputs:
+  incus-version:
+    description: 'Installed incus version'
+    value: '${{ steps.install.outputs.version }}'
+
+runs:
+  using: composite
+  steps:
+    # No VM/virtualization setup step: incus (root) uses the runner's virtualization directly.
+    - name: Install incus from Zabbly
+      id: install
+      shell: bash
+      env:
+        INPUT_CHANNEL: '${{ inputs.channel }}'
+      run: |
+        set -euo pipefail
+        # Validate the channel — it becomes the repo URL path. https://pkgs.zabbly.com/incus/
+        case "$INPUT_CHANNEL" in
+          stable|daily|lts-[0-9]*.[0-9]*) : ;;
+          *) echo "::error::unknown channel: $INPUT_CHANNEL (expected stable | daily | lts-X.Y, e.g. lts-7.0)"; exit 1 ;;
+        esac
+        uri="https://pkgs.zabbly.com/incus/$INPUT_CHANNEL"
+        sudo install -d -m0755 /etc/apt/keyrings
+        sudo cp "$GITHUB_ACTION_PATH/zabbly.asc" /etc/apt/keyrings/zabbly.asc
+        {
+          echo "Enabled: yes"
+          echo "Types: deb"
+          echo "URIs: $uri"
+          sed -n 's/VERSION_CODENAME=/Suites: /p' /etc/os-release
+          echo "Components: main"
+          echo "Architectures: $(dpkg --print-architecture)"
+          echo "Signed-By: /etc/apt/keyrings/zabbly.asc"
+        } | sudo tee /etc/apt/sources.list.d/zabbly-incus.sources >/dev/null
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq incus
+        echo "version=$(incus --version)" >>"$GITHUB_OUTPUT"
+
+    # Docker's DOCKER-USER chain drops incusbr0 traffic. Insert ACCEPT for the bridge (keeps Docker
+    # working); `flush` is the blunt fallback for jobs that don't need Docker.
+    - name: Make incus bridge coexist with Docker
+      shell: bash
+      env:
+        INPUT_BRIDGES: '${{ inputs.bridges }}'
+        INPUT_FIREWALL: '${{ inputs.firewall }}'
+      run: |
+        set -euo pipefail
+        case "$INPUT_FIREWALL" in
+          none) : ;;
+          flush) sudo nft flush ruleset ;;
+          docker-user)
+            IFS=',' read -ra BR <<<"$INPUT_BRIDGES"
+            for raw in "${BR[@]}"; do
+              b="$(echo "$raw" | xargs)"  # trim whitespace
+              [ -n "$b" ] || continue
+              for ipt in iptables ip6tables; do
+                if sudo "$ipt" -nL DOCKER-USER >/dev/null 2>&1; then
+                  sudo "$ipt" -I DOCKER-USER -i "$b" -j ACCEPT
+                  sudo "$ipt" -I DOCKER-USER -o "$b" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+                fi
+              done
+            done ;;
+          *) echo "::error::unknown firewall mode: $INPUT_FIREWALL (expected docker-user | flush | none)"; exit 1 ;;
+        esac
+
+    # Repoint the socket group to one the runner user is already in, so plain `incus` works sudo-less.
+    - name: Grant non-sudo access & init
+      shell: bash
+      env:
+        INPUT_GROUP: '${{ inputs.group }}'
+        INPUT_PRESEED: '${{ inputs.preseed }}'
+      run: |
+        set -euo pipefail
+        sudo sed -i "s/incus-admin/${INPUT_GROUP}/" \
+          /usr/lib/systemd/system/incus.service \
+          /usr/lib/systemd/system/incus.socket
+        sudo systemctl daemon-reload
+        sudo systemctl restart incus.socket
+        # Run as the runner user, never sudo (sudo would create a root-owned ~/.config/incus).
+        incus admin waitready
+        if [ -z "$INPUT_PRESEED" ]; then
+          incus admin init --minimal
+        else
+          incus admin init --preseed <<<"$INPUT_PRESEED"
+        fi
+        incus config set images.compression_algorithm none || true

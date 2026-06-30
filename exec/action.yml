@@ -1,0 +1,73 @@
+name: 'Exec in Incus instance'
+description: 'Run a shell script body inside an existing Incus instance — like a run: block, but executed in the instance'
+branding:
+  icon: 'terminal'
+  color: 'blue'
+
+inputs:
+  instance:
+    description: 'Name of the existing Incus instance to run the script in'
+    required: true
+  run:
+    description: 'Shell script body to execute inside the instance (mirrors a step''s run:)'
+    required: true
+  shell:
+    default: 'sh'
+    description: 'Interpreter inside the instance (sh-compatible: sh, bash, dash). Invoked as "<shell> -e -s", reading the script from stdin.'
+    required: false
+  cwd:
+    default: ''
+    description: 'Working directory inside the instance. If set, it is used; otherwise $GITHUB_WORKSPACE when shared in, else the instance default.'
+    required: false
+
+outputs:
+  result:
+    description: 'Whatever the body wrote to $INCUS_RESULT inside the instance'
+    value: '${{ steps.exec.outputs.result }}'
+
+runs:
+  using: composite
+  steps:
+    - id: exec
+      shell: bash
+      env:
+        INPUT_INSTANCE: '${{ inputs.instance }}'
+        INPUT_RUN: '${{ inputs.run }}'
+        INPUT_SHELL: '${{ inputs.shell }}'
+        INPUT_CWD: '${{ inputs.cwd }}'
+        GITHUB_WORKSPACE: '${{ github.workspace }}'
+      run: |
+        set -euo pipefail
+        args=(exec "$INPUT_INSTANCE")
+        # cwd: the given cwd if set, else $GITHUB_WORKSPACE when shared into the instance, else none.
+        if [ -n "$INPUT_CWD" ]; then
+          args+=(--cwd "$INPUT_CWD")
+        elif [ -n "${GITHUB_WORKSPACE:-}" ] && incus exec "$INPUT_INSTANCE" -- test -d "$GITHUB_WORKSPACE" 2>/dev/null; then
+          args+=(--cwd "$GITHUB_WORKSPACE")
+        fi
+        # Share the runner's temp dir into the instance once (idempotent) at the same path. $GITHUB_ENV,
+        # $GITHUB_STEP_SUMMARY and our result file all live under it, so the body writes the runner's
+        # real files directly — no copy back, and it survives a failing body.
+        if [ -n "${RUNNER_TEMP:-}" ] && ! incus config device list "$INPUT_INSTANCE" | grep -qx github-temp; then
+          incus config device add "$INPUT_INSTANCE" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
+        fi
+        # Forward the runner's env, minus shell-critical vars, our own inputs, and file-command vars the
+        # body must not touch ($GITHUB_OUTPUT can't surface dynamic keys; $GITHUB_PATH is meaningless
+        # inside). $GITHUB_ENV/$GITHUB_STEP_SUMMARY pass through with their real paths, valid via the mount.
+        skip='^(PATH|HOME|USER|LOGNAME|SHELL|PWD|OLDPWD|SHLVL|TERM|HOSTNAME|MAIL|_|INCUS_RESULT|INPUT_.*|GITHUB_OUTPUT|GITHUB_PATH)$'
+        while IFS= read -r name; do
+          if [[ $name =~ $skip ]]; then continue; fi
+          args+=(--env "$name=${!name}")
+        done < <(compgen -e)
+        # $INCUS_RESULT: a fresh file in the shared temp dir; its contents become the `result` output.
+        result_file="$(mktemp "${RUNNER_TEMP:-/tmp}/incus-result.XXXXXX")"
+        args+=(--env "INCUS_RESULT=$result_file")
+        # Run the body (-e fails fast); capture its exit code. result/$GITHUB_ENV/$GITHUB_STEP_SUMMARY are
+        # already written to the shared files, so there is nothing to copy — even on failure.
+        rc=0
+        printf '%s\n' "$INPUT_RUN" | incus "${args[@]}" -- "$INPUT_SHELL" -e -s || rc=$?
+        if [ -n "${GITHUB_OUTPUT:-}" ]; then
+          { printf 'result<<__INCUS_EXEC_EOF__\n'; cat "$result_file"; printf '\n__INCUS_EXEC_EOF__\n'; } >> "$GITHUB_OUTPUT"
+        fi
+        rm -f "$result_file"
+        exit "$rc"

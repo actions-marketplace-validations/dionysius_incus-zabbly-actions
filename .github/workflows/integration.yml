@@ -94,6 +94,10 @@ jobs:
           set -euo pipefail
           grep -q written-by-c1 mount-probe-c1.txt
           ls -l mount-probe-c1.txt
+          # The instance's root maps to the runner, so its writes are runner-owned and host-writable.
+          owner=$(stat -c '%u:%g' mount-probe-c1.txt)
+          [ "$owner" = "$(id -u):$(id -g)" ] || { echo "::error::mount-probe-c1.txt owned by $owner, expected runner $(id -u):$(id -g)"; exit 1; }
+          echo host-can-modify >> mount-probe-c1.txt
 
       # env forwarding (runner env visible inside), $GITHUB_ENV bridge, and the $INCUS_RESULT capture.
       - name: Env forwarding + GITHUB_ENV bridge + output (exec action)
@@ -188,6 +192,10 @@ jobs:
           set -euo pipefail
           grep -q written-by-v1 mount-probe-v1.txt
           ls -l mount-probe-v1.txt
+          # Same contract as the container: virtiofs translate makes the VM's writes runner-owned and host-writable.
+          owner=$(stat -c '%u:%g' mount-probe-v1.txt)
+          [ "$owner" = "$(id -u):$(id -g)" ] || { echo "::error::mount-probe-v1.txt owned by $owner, expected runner $(id -u):$(id -g)"; exit 1; }
+          echo host-can-modify >> mount-probe-v1.txt
 
       # Same env/result path on the VM — exercises the hot-plugged $RUNNER_TEMP mount + virtiofs write-back.
       - name: Env bridge + result on the VM (exec action)

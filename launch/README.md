@@ -41,4 +41,6 @@ steps:
 
 With `workspace` on (default), the checkout is at `$GITHUB_WORKSPACE` inside the instance too — set an [`exec`](../exec/README.md) step's `cwd` to it to work there directly.
 
+**File ownership.** The instance's root is mapped to the runner's uid/gid (`raw.idmap`), so files it creates on the shared mounts come out **runner-owned** on the host — readable and writable by later runner steps (e.g. `upload-artifact`). This holds for both containers (user namespace) and VMs (virtiofs `--translate-uid/--translate-gid`).
+
 `wait: cloud-init` only works on images that ship cloud-init (the `.../cloud` variants).

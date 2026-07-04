@@ -63,13 +63,11 @@ runs:
 
         # init (not launch), so config + shared disk devices can be applied before the instance starts.
         args=(init "$INPUT_IMAGE" "$INPUT_NAME")
-        if [ "$INPUT_VM" = true ]; then
-          args+=(--vm)
-        else
-          # Map the container's root to the runner's uid/gid: root inside keeps full capability, but
-          # files it writes on the shared mounts come out owned by the runner (not root) on the host.
-          args+=(-c "raw.idmap=$(printf 'uid %s 0\ngid %s 0' "$(id -u)" "$(id -g)")")
-        fi
+        [ "$INPUT_VM" = true ] && args+=(--vm)
+        # Map the instance's root to the runner's uid/gid: root inside keeps full capability, but files
+        # it writes on the shared mounts come out owned by the runner (not root) on the host. Containers
+        # do this in the user namespace; VMs translate it to virtiofsd --translate-uid/--translate-gid.
+        args+=(-c "raw.idmap=$(printf 'uid %s 0\ngid %s 0' "$(id -u)" "$(id -g)")")
         # Instance config, one -c KEY=VALUE per non-empty line.
         if [ -n "$INPUT_CONFIG" ]; then
           while IFS= read -r line; do

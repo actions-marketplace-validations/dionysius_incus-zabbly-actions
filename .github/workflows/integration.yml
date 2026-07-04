@@ -46,10 +46,12 @@ jobs:
         # arm64 hosted runners have no /dev/kvm, so they can't run VMs — drop those legs.
         exclude:
           - { arch: arm64, type: vm }
-        # Non-blocking smoke on Ubuntu 26.04 (public preview): one container + one VM.
+        # Non-blocking smoke on Ubuntu 26.04 (public preview): amd64 container + VM, arm64 container
+        # (arm64 has no /dev/kvm, so no arm VM — same reason as the exclude above).
         include:
           - { os: '26.04', channel: 'stable', arch: 'amd64', type: 'container', experimental: true }
-          - { os: '26.04', channel: 'stable', arch: 'amd64', type: 'vm', experimental: true }
+          - { os: '26.04', channel: 'stable', arch: 'amd64', type: 'vm',        experimental: true }
+          - { os: '26.04', channel: 'stable', arch: 'arm64', type: 'container', experimental: true }
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

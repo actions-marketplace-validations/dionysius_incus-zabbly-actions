@@ -12,7 +12,9 @@ A collection of GitHub Actions for running [Incus](https://linuxcontainers.org/i
 | [`delete`](delete/README.md) | `dionysius/incus-zabbly-actions/delete@v1` | Delete an instance (forced, stops it first) — the opposite of `launch`. |
 | [`cleanup`](cleanup/README.md) | `dionysius/incus-zabbly-actions/cleanup@v1` | Remove Incus and everything `setup` installed/changed — the opposite of `setup`. |
 
-## Example
+## Examples
+
+Build inside a VM:
 
 ```yaml
 jobs:
@@ -30,9 +32,6 @@ jobs:
         with:
           image: images:debian/trixie/cloud
           vm: true
-          config: |
-            limits.cpu=4
-            limits.memory=4GiB
           wait: cloud-init
 
       # Build inside the VM, in the shared checkout — like a normal run: block.
@@ -46,6 +45,19 @@ jobs:
 
       # Artifacts written under the workspace are already back on the runner.
       - run: ls dist
+```
+
+Or a container (omit `vm: true`; containers start instantly, no cloud-init):
+
+```yaml
+- id: launch
+  uses: dionysius/incus-zabbly-actions/launch@v1
+  with:
+    image: images:debian/trixie
+- uses: dionysius/incus-zabbly-actions/exec@v1
+  with:
+    instance: ${{ steps.launch.outputs.name }}
+    run: cat /etc/os-release
 ```
 
 See each action's README for full inputs and details.

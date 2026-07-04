@@ -61,10 +61,15 @@ runs:
         case "$INPUT_WAIT" in none|exec|cloud-init) ;; *) echo "::error::wait must be none | exec | cloud-init (got: $INPUT_WAIT)"; exit 1;; esac
         case "$INPUT_TIMEOUT" in ''|*[!0-9]*) echo "::error::timeout must be a positive integer of seconds (got: $INPUT_TIMEOUT)"; exit 1;; esac
 
-        # init (not launch), so the shared disk devices can be added before the instance starts — the
-        # mounts (and their idmap) are then set up at boot: reliable shift for containers, virtiofs for VMs.
+        # init (not launch), so config + shared disk devices can be applied before the instance starts.
         args=(init "$INPUT_IMAGE" "$INPUT_NAME")
-        [ "$INPUT_VM" = true ] && args+=(--vm)
+        if [ "$INPUT_VM" = true ]; then
+          args+=(--vm)
+        else
+          # Map the container's root to the runner's uid/gid: root inside keeps full capability, but
+          # files it writes on the shared mounts come out owned by the runner (not root) on the host.
+          args+=(-c "raw.idmap=$(printf 'uid %s 0\ngid %s 0' "$(id -u)" "$(id -g)")")
+        fi
         # Instance config, one -c KEY=VALUE per non-empty line.
         if [ -n "$INPUT_CONFIG" ]; then
           while IFS= read -r line; do
@@ -81,13 +86,10 @@ runs:
           done
         fi
         incus "${args[@]}"
-        # Share host dirs at their real paths: the workspace, and $RUNNER_TEMP so exec can pass through
-        # $GITHUB_ENV/$GITHUB_STEP_SUMMARY and its result file. Containers get shift=true so the instance
-        # root can write the runner-owned files; VMs use virtiofs, which doesn't take shift.
-        shiftopt=()
-        [ "$INPUT_VM" = false ] && shiftopt=(shift=true)
-        [ "$INPUT_WORKSPACE" = true ] && incus config device add "$INPUT_NAME" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" "${shiftopt[@]}" >/dev/null
-        [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" "${shiftopt[@]}" >/dev/null
+        # Share host dirs at their real paths (bind mount for containers, virtiofs for VMs): the
+        # workspace, and $RUNNER_TEMP so exec can pass $GITHUB_ENV/$GITHUB_STEP_SUMMARY and its result through.
+        [ "$INPUT_WORKSPACE" = true ] && incus config device add "$INPUT_NAME" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" >/dev/null
+        [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
         incus start "$INPUT_NAME"
 
         # Wait until "incus exec" works (a fresh VM's agent takes a few seconds; containers are instant).

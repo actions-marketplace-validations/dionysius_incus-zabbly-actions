@@ -16,6 +16,10 @@ inputs:
     default: 'false'
     description: 'Launch as a virtual machine instead of a system container (true/false)'
     required: false
+  ephemeral:
+    default: 'false'
+    description: 'Make the instance ephemeral, so Incus deletes it when it stops (true/false)'
+    required: false
   config:
     default: ''
     description: 'Newline-separated KEY=VALUE instance config (each becomes -c KEY=VALUE), e.g. limits.cpu=2'
@@ -55,6 +59,7 @@ runs:
         INCUS_INPUT_IMAGE: '${{ inputs.image }}'
         INCUS_INPUT_NAME: '${{ inputs.name }}'
         INCUS_INPUT_VM: '${{ inputs.vm }}'
+        INCUS_INPUT_EPHEMERAL: '${{ inputs.ephemeral }}'
         INCUS_INPUT_CONFIG: '${{ inputs.config }}'
         INCUS_INPUT_PROFILES: '${{ inputs.profiles }}'
         INCUS_INPUT_WORKSPACE: '${{ inputs.workspace }}'
@@ -64,6 +69,7 @@ runs:
       run: |
         set -euo pipefail
         case "$INCUS_INPUT_VM" in true|false) ;; *) echo "::error::vm must be true or false (got: $INCUS_INPUT_VM)"; exit 1;; esac
+        case "$INCUS_INPUT_EPHEMERAL" in true|false) ;; *) echo "::error::ephemeral must be true or false (got: $INCUS_INPUT_EPHEMERAL)"; exit 1;; esac
         case "$INCUS_INPUT_WORKSPACE" in true|false) ;; *) echo "::error::workspace must be true or false (got: $INCUS_INPUT_WORKSPACE)"; exit 1;; esac
         case "$INCUS_INPUT_WAIT" in none|exec|cloud-init) ;; *) echo "::error::wait must be none | exec | cloud-init (got: $INCUS_INPUT_WAIT)"; exit 1;; esac
         case "$INCUS_INPUT_TIMEOUT" in ''|*[!0-9]*) echo "::error::timeout must be a positive integer of seconds (got: $INCUS_INPUT_TIMEOUT)"; exit 1;; esac
@@ -72,6 +78,7 @@ runs:
         args=(init "$INCUS_INPUT_IMAGE")
         [ -n "$INCUS_INPUT_NAME" ] && args+=("$INCUS_INPUT_NAME")
         [ "$INCUS_INPUT_VM" = true ] && args+=(--vm)
+        [ "$INCUS_INPUT_EPHEMERAL" = true ] && args+=(--ephemeral)
         # raw.idmap maps the instance's root to the runner's uid/gid, so root inside keeps full capability
         # but its writes on the shared mounts come out runner-owned (not root) on the host — same result
         # for containers (user namespace) and VMs (virtiofsd --translate-uid/--translate-gid).

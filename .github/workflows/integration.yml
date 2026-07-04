@@ -44,10 +44,6 @@ jobs:
         # arm64 hosted runners have no /dev/kvm, so they can't run VMs — drop those legs.
         exclude:
           - { arch: arm64, type: vm }
-        # Per-type instance config (VMs need CPU/memory), merged into the matching legs.
-        include:
-          - { type: container, config: '' }
-          - { type: vm,        config: "limits.cpu=2\nlimits.memory=2GiB" }
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -81,14 +77,12 @@ jobs:
           image: images:debian/trixie/cloud
           vm: ${{ matrix.type == 'vm' }}
           wait: cloud-init
-          config: ${{ matrix.config }}
       - name: Launch — plain image, wait exec (launch action)
         uses: ./launch
         with:
           image: images:debian/trixie
           vm: ${{ matrix.type == 'vm' }}
           wait: exec
-          config: ${{ matrix.config }}
 
       # exec smoke; apt-get update also proves outbound traffic through the DOCKER-USER-governed FORWARD path.
       - name: Exec + outbound network (exec action)

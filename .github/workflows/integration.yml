@@ -125,8 +125,7 @@ jobs:
           {
             echo "### Discovery — container c1"
             echo '```'
-            echo "host id:  $(id -u):$(id -g) ($(id -un))"
-            echo "c1   id:  $(incus exec c1 -- id -u):$(incus exec c1 -- id -g)"
+            echo "running user — host $(id -u):$(id -g) ($(id -un)), inside c1 $(incus exec c1 -- id -u):$(incus exec c1 -- id -g)"
             echo
             printf '%-12s %-14s %-14s %s\n' item host-owner in-owner perms
             for spec in "workspace:$GITHUB_WORKSPACE" "runner_temp:$RUNNER_TEMP" "github_env:$GITHUB_ENV" "probe-file:$probe"; do
@@ -136,6 +135,10 @@ jobs:
                 "$(incus exec c1 -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
                 "$(stat -c '%a' "$p" 2>/dev/null || echo -)"
             done
+            echo
+            rd=$(cat "$probe" >/dev/null 2>&1 && echo yes || echo no)
+            wr=$( (: >>"$probe") 2>/dev/null && echo yes || echo no)
+            echo "host access to the file c1 created: read=$rd write=$wr"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           rm -f "$probe"
@@ -154,7 +157,7 @@ jobs:
         uses: ./launch
         with:
           image: images:debian/trixie
-          name: v
+          name: v1
           vm: true
           config: |
             limits.cpu=2
@@ -165,7 +168,7 @@ jobs:
         if: steps.caps.outputs.can-vm == 'true'
         uses: ./exec
         with:
-          instance: v
+          instance: v1
           run: |
             apt-get update
             echo NET=OK
@@ -175,16 +178,16 @@ jobs:
         if: steps.caps.outputs.can-vm == 'true'
         uses: ./exec
         with:
-          instance: v
+          instance: v1
           run: |
             test -f README.md
-            echo written-by-v > mount-probe-v.txt
+            echo written-by-v1 > mount-probe-v1.txt
       - name: Verify VM mount write reached the host
         if: steps.caps.outputs.can-vm == 'true'
         run: |
           set -euo pipefail
-          grep -q written-by-v mount-probe-v.txt
-          ls -l mount-probe-v.txt
+          grep -q written-by-v1 mount-probe-v1.txt
+          ls -l mount-probe-v1.txt
 
       # Same env/result path on the VM — exercises the hot-plugged $RUNNER_TEMP mount + virtiofs write-back.
       - name: Env bridge + result on the VM (exec action)
@@ -192,7 +195,7 @@ jobs:
         id: vmsmoke
         uses: ./exec
         with:
-          instance: v
+          instance: v1
           run: |
             echo "VM_SMOKE=ok-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
             echo "vm-marker-$GITHUB_RUN_ID" >> "$INCUS_RESULT"
@@ -210,22 +213,25 @@ jobs:
         if: steps.caps.outputs.can-vm == 'true'
         run: |
           set +e
-          probe="$GITHUB_WORKSPACE/.disco-v"
-          incus exec v -- sh -c "echo x > '$probe'" 2>/dev/null
+          probe="$GITHUB_WORKSPACE/.disco-v1"
+          incus exec v1 -- sh -c "echo x > '$probe'" 2>/dev/null
           {
-            echo "### Discovery — VM v"
+            echo "### Discovery — VM v1"
             echo '```'
-            echo "host id:  $(id -u):$(id -g) ($(id -un))"
-            echo "v    id:  $(incus exec v -- id -u):$(incus exec v -- id -g)"
+            echo "running user — host $(id -u):$(id -g) ($(id -un)), inside v1 $(incus exec v1 -- id -u):$(incus exec v1 -- id -g)"
             echo
             printf '%-12s %-14s %-14s %s\n' item host-owner in-owner perms
             for spec in "workspace:$GITHUB_WORKSPACE" "runner_temp:$RUNNER_TEMP" "github_env:$GITHUB_ENV" "probe-file:$probe"; do
               label=${spec%%:*}; p=${spec#*:}
               printf '%-12s %-14s %-14s %s\n' "$label" \
                 "$(stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
-                "$(incus exec v -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(incus exec v1 -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
                 "$(stat -c '%a' "$p" 2>/dev/null || echo -)"
             done
+            echo
+            rd=$(cat "$probe" >/dev/null 2>&1 && echo yes || echo no)
+            wr=$( (: >>"$probe") 2>/dev/null && echo yes || echo no)
+            echo "host access to the file v1 created: read=$rd write=$wr"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           rm -f "$probe"
@@ -240,7 +246,7 @@ jobs:
         if: steps.caps.outputs.can-vm == 'true'
         uses: ./exec
         with:
-          instance: v
+          instance: v1
           shell: bash
           run: |
             echo "guest: $(. /etc/os-release; echo "$PRETTY_NAME")"
@@ -277,4 +283,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: incus delete -f v c1 2>/dev/null || true
+        run: incus delete -f v1 c1 2>/dev/null || true

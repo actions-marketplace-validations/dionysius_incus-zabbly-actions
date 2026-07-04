@@ -47,7 +47,7 @@ jobs:
       - run: ls dist
 ```
 
-Or a container (omit `vm: true`; containers start instantly, no cloud-init):
+Or a container — just omit `vm: true`:
 
 ```yaml
 - id: launch

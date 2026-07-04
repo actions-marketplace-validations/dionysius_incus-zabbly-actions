@@ -66,10 +66,20 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Launch both wait variants for this instance type, so both are exercised on containers AND VMs:
-      # the cloud image with wait: cloud-init (this one is used by the steps below), and the plain image
-      # with wait: exec (unused downstream — its successful launch is the exec-wait test). cloud-init
-      # needs the /cloud image; exec-wait works on any.
+      # Cover both wait modes on both instance types. First the plain image with wait: exec — its
+      # successful launch is the exec-wait test — then delete it right away (also dogfooding delete) so
+      # only one instance runs during the steps below. Those use the cloud image launched with cloud-init.
+      - name: Launch — plain image, wait exec (launch action)
+        id: probe
+        uses: ./launch
+        with:
+          image: images:debian/trixie
+          vm: ${{ matrix.type == 'vm' }}
+          wait: exec
+      - name: Delete the exec-wait probe (delete action)
+        uses: ./delete
+        with:
+          name: ${{ steps.probe.outputs.name }}
       - name: Launch — cloud image, wait cloud-init (launch action)
         id: launch
         uses: ./launch
@@ -77,12 +87,6 @@ jobs:
           image: images:debian/trixie/cloud
           vm: ${{ matrix.type == 'vm' }}
           wait: cloud-init
-      - name: Launch — plain image, wait exec (launch action)
-        uses: ./launch
-        with:
-          image: images:debian/trixie
-          vm: ${{ matrix.type == 'vm' }}
-          wait: exec
 
       # exec smoke; apt-get update also proves outbound traffic through the DOCKER-USER-governed FORWARD path.
       - name: Exec + outbound network (exec action)

@@ -3,7 +3,9 @@ name: Integration
 on:
   push:
     branches: ['**']   # any branch (not tags)
+    paths-ignore: ['**/*.md']   # docs-only changes don't need the matrix
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
 
 permissions:

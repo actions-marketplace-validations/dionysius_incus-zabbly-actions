@@ -1,21 +1,6 @@
 # incus-zabbly-actions
 
-A collection of GitHub Actions for running [Incus](https://linuxcontainers.org/incus/) (from the [Zabbly](https://github.com/zabbly/incus) packages) in CI — set it up on a runner, launch instances (containers or VMs), and run work inside them.
-
-Work inside an instance **feels like a native job**. The idea is *mount, don't copy*: [`launch`](launch/README.md) shares `$GITHUB_WORKSPACE` and `$RUNNER_TEMP` into the instance at their real paths and maps the instance's root to the runner, so anything run inside reads and writes the runner's actual files. A step running *inside* an instance therefore behaves like an ordinary `run:` step on the runner:
-
-| Native `run:` step | Inside an instance |
-| --- | --- |
-| `working-directory:` | `cwd` (defaults to the shared `$GITHUB_WORKSPACE`) |
-| `shell:`, fail-fast on error | `shell` (`sh`/`bash`/`dash`), invoked `-e` |
-| Runner env, `env:`, `GITHUB_*`, `CI`, secrets you export | forwarded into the body automatically |
-| Export to later steps via `$GITHUB_ENV` | write `$GITHUB_ENV` — it is the runner's real file |
-| Job summary via `$GITHUB_STEP_SUMMARY` | write `$GITHUB_STEP_SUMMARY` — same file |
-| Log commands / annotations (`::error::`, `::group::`, `::add-mask::`) | printed by the body, parsed by GitHub (its stdout is the step's stdout) |
-| `actions/cache`, `actions/upload-artifact` over the workspace | just work — the files the body wrote are already on the runner, owned by the runner |
-| Arbitrary step outputs via `$GITHUB_OUTPUT` | one `result` output via `$INCUS_RESULT` (composite actions can't declare dynamic output keys) |
-
-The only thing that isn't a drop-in is arbitrary named step outputs; everything else is identical or a thin, documented equivalent.
+A collection of GitHub Actions for running [Incus](https://linuxcontainers.org/incus/) (from the [Zabbly](https://github.com/zabbly/incus) packages) in CI — set it up on a runner, launch instances (containers or VMs), and run work inside them, which **feels like a native job**: your checkout and environment are right there.
 
 ## Actions
 

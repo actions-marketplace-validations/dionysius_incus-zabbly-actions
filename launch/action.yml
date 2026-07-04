@@ -90,7 +90,12 @@ runs:
         # workspace, and $RUNNER_TEMP so exec can pass $GITHUB_ENV/$GITHUB_STEP_SUMMARY and its result through.
         [ "$INPUT_WORKSPACE" = true ] && incus config device add "$INPUT_NAME" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" >/dev/null
         [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
-        incus start "$INPUT_NAME"
+        if ! incus start "$INPUT_NAME"; then
+          echo "::group::$INPUT_NAME start log"
+          incus start "$INPUT_NAME" --show-log 2>&1 || true
+          echo "::endgroup::"
+          exit 1
+        fi
 
         # Wait until "incus exec" works (a fresh VM's agent takes a few seconds; containers are instant).
         if [ "$INPUT_WAIT" != none ]; then

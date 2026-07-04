@@ -39,15 +39,15 @@ runs:
       id: install
       shell: bash
       env:
-        INPUT_CHANNEL: '${{ inputs.channel }}'
+        INCUS_INPUT_CHANNEL: '${{ inputs.channel }}'
       run: |
         set -euo pipefail
         # Validate the channel — it becomes the repo URL path. https://pkgs.zabbly.com/incus/
-        case "$INPUT_CHANNEL" in
+        case "$INCUS_INPUT_CHANNEL" in
           stable|daily|lts-[0-9]*.[0-9]*) : ;;
-          *) echo "::error::unknown channel: $INPUT_CHANNEL (expected stable | daily | lts-X.Y, e.g. lts-7.0)"; exit 1 ;;
+          *) echo "::error::unknown channel: $INCUS_INPUT_CHANNEL (expected stable | daily | lts-X.Y, e.g. lts-7.0)"; exit 1 ;;
         esac
-        uri="https://pkgs.zabbly.com/incus/$INPUT_CHANNEL"
+        uri="https://pkgs.zabbly.com/incus/$INCUS_INPUT_CHANNEL"
         sudo install -d -m0755 /etc/apt/keyrings
         sudo cp "$GITHUB_ACTION_PATH/zabbly.asc" /etc/apt/keyrings/zabbly.asc
         {
@@ -68,15 +68,15 @@ runs:
     - name: Make incus bridge coexist with Docker
       shell: bash
       env:
-        INPUT_BRIDGES: '${{ inputs.bridges }}'
-        INPUT_FIREWALL: '${{ inputs.firewall }}'
+        INCUS_INPUT_BRIDGES: '${{ inputs.bridges }}'
+        INCUS_INPUT_FIREWALL: '${{ inputs.firewall }}'
       run: |
         set -euo pipefail
-        case "$INPUT_FIREWALL" in
+        case "$INCUS_INPUT_FIREWALL" in
           none) : ;;
           flush) sudo nft flush ruleset ;;
           docker-user)
-            IFS=',' read -ra BR <<<"$INPUT_BRIDGES"
+            IFS=',' read -ra BR <<<"$INCUS_INPUT_BRIDGES"
             for raw in "${BR[@]}"; do
               b="$(echo "$raw" | xargs)"  # trim whitespace
               [ -n "$b" ] || continue
@@ -87,18 +87,18 @@ runs:
                 fi
               done
             done ;;
-          *) echo "::error::unknown firewall mode: $INPUT_FIREWALL (expected docker-user | flush | none)"; exit 1 ;;
+          *) echo "::error::unknown firewall mode: $INCUS_INPUT_FIREWALL (expected docker-user | flush | none)"; exit 1 ;;
         esac
 
     # Repoint the socket group to one the runner user is already in, so plain `incus` works sudo-less.
     - name: Grant non-sudo access & init
       shell: bash
       env:
-        INPUT_GROUP: '${{ inputs.group }}'
-        INPUT_PRESEED: '${{ inputs.preseed }}'
+        INCUS_INPUT_GROUP: '${{ inputs.group }}'
+        INCUS_INPUT_PRESEED: '${{ inputs.preseed }}'
       run: |
         set -euo pipefail
-        sudo sed -i "s/incus-admin/${INPUT_GROUP}/" \
+        sudo sed -i "s/incus-admin/${INCUS_INPUT_GROUP}/" \
           /usr/lib/systemd/system/incus.service \
           /usr/lib/systemd/system/incus.socket
         # Let the incus daemon map container ids down to the runner's uid/gid, so launch can make a
@@ -109,9 +109,9 @@ runs:
         sudo systemctl restart incus.socket incus.service
         # Run as the runner user, never sudo (sudo would create a root-owned ~/.config/incus).
         incus admin waitready
-        if [ -z "$INPUT_PRESEED" ]; then
+        if [ -z "$INCUS_INPUT_PRESEED" ]; then
           incus admin init --minimal
         else
-          incus admin init --preseed <<<"$INPUT_PRESEED"
+          incus admin init --preseed <<<"$INCUS_INPUT_PRESEED"
         fi
         incus config set images.compression_algorithm none || true

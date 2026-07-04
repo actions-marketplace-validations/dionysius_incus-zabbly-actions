@@ -14,14 +14,14 @@ runs:
   steps:
     - shell: bash
       env:
-        INPUT_NAME: '${{ inputs.name }}'
+        INCUS_INPUT_NAME: '${{ inputs.name }}'
       run: |
         set -euo pipefail
-        [ -n "$INPUT_NAME" ] || { echo "::error::name is required"; exit 1; }
+        [ -n "$INCUS_INPUT_NAME" ] || { echo "::error::name is required"; exit 1; }
         # Force-delete (stops the instance first if it is running). Missing = already gone, so succeed
         # — lets this run in an "if: always()" teardown even when launch never created the instance.
-        if incus info "$INPUT_NAME" >/dev/null 2>&1; then
-          incus delete --force "$INPUT_NAME"
+        if incus info "$INCUS_INPUT_NAME" >/dev/null 2>&1; then
+          incus delete --force "$INCUS_INPUT_NAME"
         else
-          echo "::notice::instance $INPUT_NAME does not exist — nothing to delete"
+          echo "::notice::instance $INCUS_INPUT_NAME does not exist — nothing to delete"
         fi

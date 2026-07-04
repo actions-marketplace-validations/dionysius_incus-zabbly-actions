@@ -92,7 +92,7 @@ runs:
         [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
         if ! incus start "$INPUT_NAME"; then
           echo "::group::$INPUT_NAME start log"
-          incus start "$INPUT_NAME" --show-log 2>&1 || true
+          incus info "$INPUT_NAME" --show-log 2>&1 || true
           echo "::endgroup::"
           exit 1
         fi

@@ -44,10 +44,10 @@ jobs:
         # arm64 hosted runners have no /dev/kvm, so they can't run VMs — drop those legs.
         exclude:
           - { arch: arm64, type: vm }
-        # Per-type launch parameters, merged into the matching legs.
+        # Per-type instance config (VMs need CPU/memory), merged into the matching legs.
         include:
-          - { type: container, image: 'images:debian/trixie/cloud', wait: 'cloud-init', config: '' }
-          - { type: vm,        image: 'images:debian/trixie',       wait: 'exec',       config: "limits.cpu=2\nlimits.memory=2GiB" }
+          - { type: container, config: '' }
+          - { type: vm,        config: "limits.cpu=2\nlimits.memory=2GiB" }
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -70,13 +70,24 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Launch the instance (launch action)
+      # Launch both wait variants for this instance type, so both are exercised on containers AND VMs:
+      # the cloud image with wait: cloud-init (this one is used by the steps below), and the plain image
+      # with wait: exec (unused downstream — its successful launch is the exec-wait test). cloud-init
+      # needs the /cloud image; exec-wait works on any.
+      - name: Launch — cloud image, wait cloud-init (launch action)
         id: launch
         uses: ./launch
         with:
-          image: ${{ matrix.image }}
+          image: images:debian/trixie/cloud
           vm: ${{ matrix.type == 'vm' }}
-          wait: ${{ matrix.wait }}
+          wait: cloud-init
+          config: ${{ matrix.config }}
+      - name: Launch — plain image, wait exec (launch action)
+        uses: ./launch
+        with:
+          image: images:debian/trixie
+          vm: ${{ matrix.type == 'vm' }}
+          wait: exec
           config: ${{ matrix.config }}
 
       # exec smoke; apt-get update also proves outbound traffic through the DOCKER-USER-governed FORWARD path.

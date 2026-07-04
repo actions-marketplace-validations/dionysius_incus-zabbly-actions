@@ -42,10 +42,10 @@ jobs:
       - uses: dionysius/incus-zabbly-actions/setup@v1
 
       # Launch a VM; the workspace is shared in at $GITHUB_WORKSPACE (default).
-      - uses: dionysius/incus-zabbly-actions/launch@v1
+      - id: launch
+        uses: dionysius/incus-zabbly-actions/launch@v1
         with:
           image: images:debian/trixie/cloud
-          name: myinstance
           vm: true
           config: |
             limits.cpu=4
@@ -55,7 +55,7 @@ jobs:
       # Build inside the VM, in the shared checkout — like a normal run: block.
       - uses: dionysius/incus-zabbly-actions/exec@v1
         with:
-          instance: myinstance
+          instance: ${{ steps.launch.outputs.name }}
           run: |
             apt-get update
             apt-get install -y build-essential

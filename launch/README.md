@@ -11,11 +11,16 @@ steps:
   - uses: dionysius/incus-zabbly-actions/setup@v1
 
   - name: Launch my instance
+    id: launch
     uses: dionysius/incus-zabbly-actions/launch@v1
     with:
       image: images:debian/trixie
-      name: myinstance
-      # vm: true # for virtual machine instead of a system container (if the same image alias offers both)
+      # vm: true # for a virtual machine instead of a system container (if the same image alias offers both)
+
+  - uses: dionysius/incus-zabbly-actions/exec@v1
+    with:
+      instance: ${{ steps.launch.outputs.name }}   # Incus generated the name; use the output
+      run: echo hello
 ```
 
 ## Inputs
@@ -23,7 +28,7 @@ steps:
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `image` | — (required) | Image to launch, e.g. `images:debian/trixie`. |
-| `name` | — (required) | Name to give the new instance. |
+| `name` | `''` | Name for the new instance. Empty lets Incus generate one, returned as the `name` output. |
 | `vm` | `false` | Launch as a virtual machine instead of a system container. |
 | `config` | `''` | Newline-separated `KEY=VALUE` instance config (each → `-c`), e.g. `limits.cpu=2`. |
 | `profiles` | `''` | Comma-separated profiles to apply (each → `-p`). |
@@ -36,12 +41,14 @@ steps:
 
 | Output | Purpose |
 | --- | --- |
-| `name` | Name of the launched instance. |
+| `name` | Name of the launched instance (the given name, or the one Incus generated). |
 
 ## Notes
 
-With `workspace` on (default), the checkout is at `$GITHUB_WORKSPACE` inside the instance too — set an [`exec`](../exec/README.md) step's `cwd` to it to work there directly.
+With `workspace` on (default), the checkout is at `$GITHUB_WORKSPACE` inside the instance too, and [`exec`](../exec/README.md) runs there by default — see [`exec`](../exec/README.md) for details.
 
-**File ownership.** By default (`idmap: auto`) the instance's root is mapped to the runner's uid/gid (`raw.idmap`), so files it creates on the shared mounts come out **runner-owned** on the host — readable and writable by later runner steps (e.g. `upload-artifact`). This holds for both containers (user namespace) and VMs (virtiofs `--translate-uid/--translate-gid`). Set `idmap: none` for stock Incus ownership, or pass a custom `raw.idmap` payload.
+**File ownership.** By default (`idmap: auto`) the instance's root is mapped to the runner's uid/gid (`raw.idmap`), so files it creates on the shared mounts come out **runner-owned** on the host — readable and writable by later runner steps (e.g. `upload-artifact`). This holds for both containers and VMs. Set `idmap: none` for stock Incus ownership, or pass a custom `raw.idmap` payload.
+
+The `images:` remote serves the images published at <https://images.linuxcontainers.org/> — browse there for the available distributions, releases, and variants.
 
 `wait: cloud-init` only works on images that ship cloud-init (the `.../cloud` variants).

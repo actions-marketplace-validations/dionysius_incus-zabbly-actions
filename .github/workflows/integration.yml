@@ -69,10 +69,10 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Launch the instance (launch action)
+        id: launch
         uses: ./launch
         with:
           image: ${{ matrix.image }}
-          name: i1
           vm: ${{ matrix.type == 'vm' }}
           wait: ${{ matrix.wait }}
           config: ${{ matrix.config }}
@@ -81,7 +81,7 @@ jobs:
       - name: Exec + outbound network (exec action)
         uses: ./exec
         with:
-          instance: i1
+          instance: ${{ steps.launch.outputs.name }}
           run: |
             cat /etc/os-release
             apt-get update
@@ -91,14 +91,14 @@ jobs:
       - name: Workspace mount round-trip (exec action)
         uses: ./exec
         with:
-          instance: i1
+          instance: ${{ steps.launch.outputs.name }}
           run: |
             test -f README.md
-            echo written-by-i1 > mount-probe.txt
+            echo written-by-instance > mount-probe.txt
       - name: Verify mount write reached the host (runner-owned + writable)
         run: |
           set -euo pipefail
-          grep -q written-by-i1 mount-probe.txt
+          grep -q written-by-instance mount-probe.txt
           ls -l mount-probe.txt
           # The instance's root maps to the runner, so its writes are runner-owned and host-writable.
           owner=$(stat -c '%u:%g' mount-probe.txt)
@@ -110,7 +110,7 @@ jobs:
         id: smoke
         uses: ./exec
         with:
-          instance: i1
+          instance: ${{ steps.launch.outputs.name }}
           run: |
             test -n "$GITHUB_REPOSITORY"
             echo "SMOKE_ENV=ok-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
@@ -128,27 +128,29 @@ jobs:
       # Discovery: what uid/gid the instance runs as, and how the shared paths + a file it writes look
       # from the host vs from inside — to see the idmap.
       - name: Discovery — ids, ownership, perms
+        env:
+          INSTANCE: ${{ steps.launch.outputs.name }}
         run: |
           set +e
           probe="$GITHUB_WORKSPACE/.disco"
-          incus exec i1 -- sh -c "echo x > '$probe'" 2>/dev/null
+          incus exec "$INSTANCE" -- sh -c "echo x > '$probe'" 2>/dev/null
           {
-            echo "### Discovery — ${{ matrix.type }} i1"
+            echo "### Discovery — ${{ matrix.type }} $INSTANCE"
             echo '```'
-            echo "running user — host $(id -u):$(id -g) ($(id -un)), inside i1 $(incus exec i1 -- id -u):$(incus exec i1 -- id -g)"
+            echo "running user — host $(id -u):$(id -g) ($(id -un)), inside $INSTANCE $(incus exec "$INSTANCE" -- id -u):$(incus exec "$INSTANCE" -- id -g)"
             echo
             printf '%-12s %-14s %-14s %s\n' item host-owner in-owner perms
             for spec in "workspace:$GITHUB_WORKSPACE" "runner_temp:$RUNNER_TEMP" "github_env:$GITHUB_ENV" "probe-file:$probe"; do
               label=${spec%%:*}; p=${spec#*:}
               printf '%-12s %-14s %-14s %s\n' "$label" \
                 "$(stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
-                "$(incus exec i1 -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
+                "$(incus exec "$INSTANCE" -- stat -c '%u:%g' "$p" 2>/dev/null || echo -)" \
                 "$(stat -c '%a' "$p" 2>/dev/null || echo -)"
             done
             echo
             rd=$(cat "$probe" >/dev/null 2>&1 && echo yes || echo no)
             wr=$( (: >>"$probe") 2>/dev/null && echo yes || echo no)
-            echo "host access to the file i1 created: read=$rd write=$wr"
+            echo "host access to the file the instance created: read=$rd write=$wr"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           rm -f "$probe"
@@ -163,7 +165,7 @@ jobs:
         if: matrix.type == 'vm'
         uses: ./exec
         with:
-          instance: i1
+          instance: ${{ steps.launch.outputs.name }}
           shell: bash
           run: |
             echo "guest: $(. /etc/os-release; echo "$PRETTY_NAME")"
@@ -203,12 +205,10 @@ jobs:
         if: always()
         uses: ./delete
         with:
-          name: i1
+          name: ${{ steps.launch.outputs.name }}
       - name: Cleanup Incus (cleanup action)
         if: always()
-        uses: ./cleanup
-        with:
-          instances: false   # the delete step above already removed i1
+        uses: ./cleanup   # defaults: sweep any remaining instances + purge incus
       - name: Verify cleanup removed incus + repo
         if: always()
         run: |

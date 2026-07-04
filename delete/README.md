@@ -8,7 +8,7 @@ A GitHub Action that deletes an [Incus](https://linuxcontainers.org/incus/) inst
 steps:
   - uses: dionysius/incus-zabbly-actions/delete@v1
     with:
-      name: myinstance
+      name: ${{ steps.launch.outputs.name }}
 ```
 
 Typically as a teardown step:
@@ -18,7 +18,7 @@ Typically as a teardown step:
     if: always()
     uses: dionysius/incus-zabbly-actions/delete@v1
     with:
-      name: myinstance
+      name: ${{ steps.launch.outputs.name }}
 ```
 
 ## Inputs

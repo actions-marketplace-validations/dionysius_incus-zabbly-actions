@@ -9,14 +9,14 @@ Assumes the instance already exists (create it with [`setup`](../setup/README.md
 ```yaml
 steps:
   - uses: dionysius/incus-zabbly-actions/setup@v1
-  - uses: dionysius/incus-zabbly-actions/launch@v1
+  - id: launch
+    uses: dionysius/incus-zabbly-actions/launch@v1
     with:
       image: images:debian/trixie
-      name: myinstance
   - name: Provision inside the instance
     uses: dionysius/incus-zabbly-actions/exec@v1
     with:
-      instance: myinstance
+      instance: ${{ steps.launch.outputs.name }}
       run: |
         apt-get update
         apt-get install -y cowsay
@@ -52,7 +52,7 @@ steps:
 - id: build
   uses: dionysius/incus-zabbly-actions/exec@v1
   with:
-    instance: myinstance
+    instance: ${{ steps.launch.outputs.name }}
     run: |
       echo "version=1.2.3" >> "$INCUS_RESULT"
       echo "arch=$(uname -m)" >> "$INCUS_RESULT"

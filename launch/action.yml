@@ -9,8 +9,9 @@ inputs:
     description: 'Image to launch, e.g. images:debian/trixie'
     required: true
   name:
-    description: 'Name to give the new instance'
-    required: true
+    default: ''
+    description: 'Name for the new instance (empty = let Incus generate one; the chosen name is returned as the name output)'
+    required: false
   vm:
     default: 'false'
     description: 'Launch as a virtual machine instead of a system container (true/false)'
@@ -42,13 +43,14 @@ inputs:
 
 outputs:
   name:
-    description: 'Name of the launched instance'
-    value: '${{ inputs.name }}'
+    description: 'Name of the launched instance (the given name, or the one Incus generated)'
+    value: '${{ steps.launch.outputs.name }}'
 
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: launch
+      shell: bash
       env:
         INPUT_IMAGE: '${{ inputs.image }}'
         INPUT_NAME: '${{ inputs.name }}'
@@ -67,7 +69,8 @@ runs:
         case "$INPUT_TIMEOUT" in ''|*[!0-9]*) echo "::error::timeout must be a positive integer of seconds (got: $INPUT_TIMEOUT)"; exit 1;; esac
 
         # init (not launch), so config + shared disk devices can be applied before the instance starts.
-        args=(init "$INPUT_IMAGE" "$INPUT_NAME")
+        args=(init "$INPUT_IMAGE")
+        [ -n "$INPUT_NAME" ] && args+=("$INPUT_NAME")
         [ "$INPUT_VM" = true ] && args+=(--vm)
         # raw.idmap maps the instance's root to the runner's uid/gid, so root inside keeps full capability
         # but its writes on the shared mounts come out runner-owned (not root) on the host — same result
@@ -92,14 +95,23 @@ runs:
             [ -n "$p" ] && args+=(-p "$p")
           done
         fi
-        incus "${args[@]}"
-        # Share host dirs at their real paths (bind mount for containers, virtiofs for VMs): the
-        # workspace, and $RUNNER_TEMP so exec can pass $GITHUB_ENV/$GITHUB_STEP_SUMMARY and its result through.
-        [ "$INPUT_WORKSPACE" = true ] && incus config device add "$INPUT_NAME" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" >/dev/null
-        [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$INPUT_NAME" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
-        if ! incus start "$INPUT_NAME"; then
-          echo "::group::$INPUT_NAME start log"
-          incus info "$INPUT_NAME" --show-log 2>&1 || true
+        # Run init. With no name given, incus generates one and prints "Instance name is: <name>" on stdout.
+        name="$INPUT_NAME"
+        if [ -n "$name" ]; then
+          incus "${args[@]}"
+        else
+          out="$(incus "${args[@]}")"
+          printf '%s\n' "$out"
+          name="$(printf '%s\n' "$out" | sed -n 's/^Instance name is: //p' | tail -n1)"
+          [ -n "$name" ] || { echo "::error::could not determine the name Incus generated"; exit 1; }
+        fi
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+        # Share host dirs at their real paths (the workspace, and $RUNNER_TEMP) — both back the exec action.
+        [ "$INPUT_WORKSPACE" = true ] && incus config device add "$name" workspace disk source="$GITHUB_WORKSPACE" path="$GITHUB_WORKSPACE" >/dev/null
+        [ -n "${RUNNER_TEMP:-}" ] && incus config device add "$name" github-temp disk source="$RUNNER_TEMP" path="$RUNNER_TEMP" >/dev/null
+        if ! incus start "$name"; then
+          echo "::group::$name start log"
+          incus info "$name" --show-log 2>&1 || true
           echo "::endgroup::"
           exit 1
         fi
@@ -107,14 +119,14 @@ runs:
         # Wait until "incus exec" works (a fresh VM's agent takes a few seconds; containers are instant).
         if [ "$INPUT_WAIT" != none ]; then
           end=$((SECONDS + INPUT_TIMEOUT))
-          until incus exec "$INPUT_NAME" -- true 2>/dev/null; do
+          until incus exec "$name" -- true 2>/dev/null; do
             if [ "$SECONDS" -ge "$end" ]; then
-              echo "::error::instance $INPUT_NAME not reachable via incus exec after ${INPUT_TIMEOUT}s"
+              echo "::error::instance $name not reachable via incus exec after ${INPUT_TIMEOUT}s"
               exit 1
             fi
             sleep 2
           done
           if [ "$INPUT_WAIT" = cloud-init ]; then
-            incus exec "$INPUT_NAME" -- cloud-init status --wait
+            incus exec "$name" -- cloud-init status --wait
           fi
         fi

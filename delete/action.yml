@@ -1,0 +1,27 @@
+name: 'Delete an Incus instance'
+description: 'Delete an Incus instance, stopping it first if running (always forced) — the opposite of launch'
+branding:
+  icon: 'trash-2'
+  color: 'blue'
+
+inputs:
+  name:
+    description: 'Name of the Incus instance to delete'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INPUT_NAME: '${{ inputs.name }}'
+      run: |
+        set -euo pipefail
+        [ -n "$INPUT_NAME" ] || { echo "::error::name is required"; exit 1; }
+        # Force-delete (stops the instance first if it is running). Missing = already gone, so succeed
+        # — lets this run in an "if: always()" teardown even when launch never created the instance.
+        if incus info "$INPUT_NAME" >/dev/null 2>&1; then
+          incus delete --force "$INPUT_NAME"
+        else
+          echo "::notice::instance $INPUT_NAME does not exist — nothing to delete"
+        fi

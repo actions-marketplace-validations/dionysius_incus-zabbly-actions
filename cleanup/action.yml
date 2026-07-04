@@ -1,0 +1,46 @@
+name: 'Cleanup Zabbly Incus'
+description: 'Remove Incus and the changes setup made (instances, package, apt repo, keyring, subuid/subgid) — the opposite of setup'
+branding:
+  icon: 'trash'
+  color: 'blue'
+
+inputs:
+  instances:
+    default: 'true'
+    description: 'Delete all Incus instances (forced) before removing incus (true/false)'
+    required: false
+  purge:
+    default: 'true'
+    description: 'apt-get purge the incus package and autoremove its dependencies (true/false)'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INPUT_INSTANCES: '${{ inputs.instances }}'
+        INPUT_PURGE: '${{ inputs.purge }}'
+      run: |
+        set -euo pipefail
+        case "$INPUT_INSTANCES" in true|false) ;; *) echo "::error::instances must be true or false (got: $INPUT_INSTANCES)"; exit 1;; esac
+        case "$INPUT_PURGE" in true|false) ;; *) echo "::error::purge must be true or false (got: $INPUT_PURGE)"; exit 1;; esac
+
+        # Delete every instance (force stops running ones) while incus is still up.
+        if [ "$INPUT_INSTANCES" = true ] && command -v incus >/dev/null 2>&1; then
+          incus list --format csv --columns n 2>/dev/null | xargs -r incus delete --force
+        fi
+
+        # Remove the incus package; purge also drops its config + /var/lib/incus and the (setup-edited)
+        # systemd unit files, and autoremove clears the dependencies it pulled in.
+        if [ "$INPUT_PURGE" = true ]; then
+          sudo apt-get purge -y -qq incus || true
+          sudo apt-get autoremove -y -qq || true
+        fi
+
+        # Remove the apt repo + keyring setup added.
+        sudo rm -f /etc/apt/sources.list.d/zabbly-incus.sources /etc/apt/keyrings/zabbly.asc
+
+        # Remove the subuid/subgid allowances setup appended (root:<runner uid/gid>:1).
+        sudo sed -i "\|^root:$(id -u):1$|d" /etc/subuid
+        sudo sed -i "\|^root:$(id -g):1$|d" /etc/subgid

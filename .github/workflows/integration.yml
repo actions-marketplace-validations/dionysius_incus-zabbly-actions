@@ -198,6 +198,22 @@ jobs:
             echo "$out" | grep -q USR=READONLY
             echo "$out" | grep -q CGROUP=READONLY
 
-      - name: Cleanup
+      # Teardown, also dogfooding the delete + cleanup actions.
+      - name: Delete the instance (delete action)
         if: always()
-        run: incus delete -f i1 2>/dev/null || true
+        uses: ./delete
+        with:
+          name: i1
+      - name: Cleanup Incus (cleanup action)
+        if: always()
+        uses: ./cleanup
+        with:
+          instances: false   # the delete step above already removed i1
+      - name: Verify cleanup removed incus + repo
+        if: always()
+        run: |
+          set -euo pipefail
+          ! command -v incus >/dev/null 2>&1 || { echo "::error::incus binary still present after cleanup"; exit 1; }
+          test ! -e /etc/apt/sources.list.d/zabbly-incus.sources || { echo "::error::apt source remains after cleanup"; exit 1; }
+          test ! -e /etc/apt/keyrings/zabbly.asc || { echo "::error::keyring remains after cleanup"; exit 1; }
+          echo "cleanup OK"

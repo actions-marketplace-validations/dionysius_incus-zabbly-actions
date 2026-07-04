@@ -101,8 +101,12 @@ runs:
         sudo sed -i "s/incus-admin/${INPUT_GROUP}/" \
           /usr/lib/systemd/system/incus.service \
           /usr/lib/systemd/system/incus.socket
+        # Let the incus daemon map container ids down to the runner's uid/gid, so launch can make a
+        # container's root own its writes as the runner (raw.idmap). newuidmap enforces these files.
+        echo "root:$(id -u):1" | sudo tee -a /etc/subuid >/dev/null
+        echo "root:$(id -g):1" | sudo tee -a /etc/subgid >/dev/null
         sudo systemctl daemon-reload
-        sudo systemctl restart incus.socket
+        sudo systemctl restart incus.socket incus.service
         # Run as the runner user, never sudo (sudo would create a root-owned ~/.config/incus).
         incus admin waitready
         if [ -z "$INPUT_PRESEED" ]; then

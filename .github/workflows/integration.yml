@@ -31,19 +31,25 @@ jobs:
 
   instance:
     needs: security
-    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.channel }} / ${{ matrix.type }}
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.channel }} / ${{ matrix.type }}${{ matrix.experimental && ' (preview)' || '' }}
     # arm64 hosted runners use the -arm label suffix.
     runs-on: ${{ matrix.arch == 'arm64' && format('ubuntu-{0}-arm', matrix.os) || format('ubuntu-{0}', matrix.os) }}
+    # 26.04 is public preview — its legs are experimental and don't fail the run.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        os: ['22.04', '24.04']
+        os: ['24.04']
         channel: ['stable', 'lts-7.0', 'lts-6.0']
         arch: ['amd64', 'arm64']
         type: ['container', 'vm']
         # arm64 hosted runners have no /dev/kvm, so they can't run VMs — drop those legs.
         exclude:
           - { arch: arm64, type: vm }
+        # Non-blocking smoke on Ubuntu 26.04 (public preview): one container + one VM.
+        include:
+          - { os: '26.04', channel: 'stable', arch: 'amd64', type: 'container', experimental: true }
+          - { os: '26.04', channel: 'stable', arch: 'amd64', type: 'vm', experimental: true }
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

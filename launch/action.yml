@@ -102,7 +102,9 @@ runs:
         else
           out="$(incus "${args[@]}")"
           printf '%s\n' "$out"
-          name="$(printf '%s\n' "$out" | sed -n 's/^Instance name is: //p' | tail -n1)"
+          # incus prints "Instance name is: <name>"; image-download progress uses \r, so strip it and
+          # match anywhere on the line rather than anchoring at the start.
+          name="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's/.*Instance name is: //p' | tail -n1)"
           [ -n "$name" ] || { echo "::error::could not determine the name Incus generated"; exit 1; }
         fi
         echo "name=$name" >> "$GITHUB_OUTPUT"

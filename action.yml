@@ -13,5 +13,5 @@ runs:
     - name: 'Stub'
       shell: bash
       run: |
-        echo "::error::incus-zabbly-actions is a collection — use a sub-action instead, e.g. dionysius/incus-zabbly-actions/setup@v1. See https://github.com/dionysius/incus-zabbly-actions#actions"
+        echo "::error::incus-zabbly-actions is a collection — use a sub-action instead (dionysius/incus-zabbly-actions/<name>@vX). See https://github.com/dionysius/incus-zabbly-actions#actions"
         exit 1

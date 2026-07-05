@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']   # full semver only; v1 / v1.2 aliases (too few dots) never trigger this
+
+# Least privilege by default; each job elevates only what it needs.
+permissions: {}
+
+jobs:
+  # Gate: the tagged commit must pass the whole integration suite before anything is released.
+  integration:
+    uses: ./.github/workflows/integration.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+  release:
+    needs: integration   # no green integration → no release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release + move the alias tags
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
+    steps:
+      # Immutable release for the exact version (repo setting "Immutable releases" must be enabled).
+      - name: Create the release
+        run: |
+          set -euo pipefail
+          flags=(--generate-notes --verify-tag)
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac   # e.g. v1.2.3-rc1 → prerelease
+          gh release create "$TAG" "${flags[@]}"
+
+      # Move the mutable major (v1) and minor (v1.2) aliases onto this commit — plain tags, NOT releases,
+      # so they stay movable. Skipped for prereleases so the stable aliases never point at an rc.
+      - name: Move major/minor aliases
+        run: |
+          set -euo pipefail
+          case "$TAG" in *-*) echo "prerelease $TAG — leaving stable aliases untouched"; exit 0 ;; esac
+          for alias in "${TAG%%.*}" "${TAG%.*}"; do
+            gh api -X PATCH "repos/$REPO/git/refs/tags/$alias" -f sha="$SHA" -F force=true \
+              || gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$alias" -f sha="$SHA"
+            echo "moved $alias -> $SHA"
+          done

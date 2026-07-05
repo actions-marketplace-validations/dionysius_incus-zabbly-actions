@@ -87,6 +87,16 @@ runs:
           none|'') : ;;
           *)       args+=(-c "raw.idmap=$INCUS_INPUT_IDMAP") ;;
         esac
+        # A fresh Incus VM defaults to 1 CPU / 1GiB RAM; size it to the whole runner (the host)
+        # instead, so the VM can use everything the job pays for. Containers are unlimited already.
+        # Skipped per-key if the user set limits.cpu/limits.memory in config (their value wins).
+        if [ "$INCUS_INPUT_VM" = true ]; then
+          grep -qE '^[[:space:]]*limits\.cpu=' <<<"$INCUS_INPUT_CONFIG" || args+=(-c "limits.cpu=$(nproc)")
+          # MemTotal is in KiB (despite the kB label), so append KiB — incus wants an explicit unit.
+          if ! grep -qE '^[[:space:]]*limits\.memory=' <<<"$INCUS_INPUT_CONFIG"; then
+            args+=(-c "limits.memory=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)KiB")
+          fi
+        fi
         # Instance config, one -c KEY=VALUE per non-empty line.
         if [ -n "$INCUS_INPUT_CONFIG" ]; then
           while IFS= read -r line; do

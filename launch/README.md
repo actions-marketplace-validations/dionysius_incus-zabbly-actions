@@ -31,7 +31,7 @@ steps:
 | `name` | `''` | Name for the new instance. Empty lets Incus generate one, returned as the `name` output. |
 | `vm` | `false` | Launch as a virtual machine instead of a system container. |
 | `ephemeral` | `true` | Make the instance ephemeral — Incus deletes it when it stops. Set `false` to keep it. |
-| `config` | `''` | Newline-separated `KEY=VALUE` instance config (each → `-c`), e.g. `limits.cpu=2`. |
+| `config` | `''` | Newline-separated `KEY=VALUE` instance config (each → `-c`). |
 | `profiles` | `''` | Comma-separated profiles to apply (each → `-p`). |
 | `workspace` | `true` | Mount `$GITHUB_WORKSPACE` into the instance at the same path. |
 | `idmap` | `auto` | Root UID/GID mapping on the shared mounts: `auto` (map instance root to the runner → runner-owned files), `none` (no `raw.idmap`, stock Incus ownership), or a verbatim `raw.idmap` payload (e.g. `both 1000 1000`). |
@@ -46,10 +46,14 @@ steps:
 
 ## Notes
 
+The `images:` remote serves the images published at <https://images.linuxcontainers.org/> — browse there for the available distributions, releases, and variants. You can use your own remote by adding it beforehand (`incus remote add ...`).
+
+Available `config:` options can be found at <https://linuxcontainers.org/incus/docs/main/reference/instance_options/>.
+
 With `workspace` on (default), the checkout is at `$GITHUB_WORKSPACE` inside the instance too, and [`exec`](../exec/README.md) runs there by default — see [`exec`](../exec/README.md) for details.
 
-**File ownership.** By default (`idmap: auto`) the instance's root is mapped to the runner's uid/gid (`raw.idmap`), so files it creates on the shared mounts come out **runner-owned** on the host — readable and writable by later runner steps (e.g. `upload-artifact`). This holds for both containers and VMs. Set `idmap: none` for stock Incus ownership, or pass a custom `raw.idmap` payload.
+By default (`idmap: auto`) the instance's root is mapped to the runner's uid/gid (`raw.idmap`), so files it creates on the shared mounts come out runner-owned on the host — readable and writable by later runner steps (e.g. `upload-artifact`). Set `idmap: none` for stock Incus ownership, or pass a custom `raw.idmap` payload.
 
-The `images:` remote serves the images published at <https://images.linuxcontainers.org/> — browse there for the available distributions, releases, and variants.
+For VMs (`vm: true`) this action sizes the instance by default to the whole runner — `limits.cpu` to the host's CPU count and `limits.memory` to its total RAM. Containers are unaffected (they are not limited, but limits can be set there too).
 
 `wait: cloud-init` only works on images that ship cloud-init (the `.../cloud` variants).

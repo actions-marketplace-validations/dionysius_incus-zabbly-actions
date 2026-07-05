@@ -1,5 +1,5 @@
 name: 'Zabbly Incus for GitHub Actions'
-description: "Stub: don't use this action directly. Use a sub-action — dionysius/incus-zabbly-actions/<setup|launch|exec|delete|cleanup>@vX. See the README."
+description: "Stub — don't use directly. Use a sub-action: setup, launch, exec, delete, or cleanup. See the README."
 branding:
   icon: 'box'
   color: 'blue'

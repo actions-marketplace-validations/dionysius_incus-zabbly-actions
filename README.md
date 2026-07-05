@@ -8,7 +8,7 @@ Each action is a thin, GitHub-Actions-opinionated wrapper around plain `incus` c
 
 | Action | Reference | Purpose |
 | --- | --- | --- |
-| [`setup`](setup/README.md) | `dionysius/incus-zabbly-actions/setup@v1` | Install & configure Incus on a GitHub-hosted Ubuntu runner (containers + VMs), coexisting with the runner's Docker. |
+| [`setup`](setup/README.md) | `dionysius/incus-zabbly-actions/setup@v1` | Install & configure Incus on a GitHub-hosted Ubuntu runner, coexisting with the runner's Docker. |
 | [`launch`](launch/README.md) | `dionysius/incus-zabbly-actions/launch@v1` | Launch an instance (container or VM), share the workspace in, and wait until it is usable. |
 | [`exec`](exec/README.md) | `dionysius/incus-zabbly-actions/exec@v1` | Run a shell script body inside an instance — like a `run:` block, but in the instance. |
 | [`delete`](delete/README.md) | `dionysius/incus-zabbly-actions/delete@v1` | Delete an instance (forced, stops it first) — the opposite of `launch`. |

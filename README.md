@@ -4,6 +4,8 @@ A collection of GitHub Actions for running [Incus](https://linuxcontainers.org/i
 
 ## Actions
 
+Each action is a thin, GitHub-Actions-opinionated wrapper around plain `incus` commands — it adds the CI glue. Once [`setup`](setup/README.md) has run, `incus` is fully configured and usable sudo-less on the runner, so you use raw `incus …` commands for whatever the wrappers don't cover.
+
 | Action | Reference | Purpose |
 | --- | --- | --- |
 | [`setup`](setup/README.md) | `dionysius/incus-zabbly-actions/setup@v1` | Install & configure Incus on a GitHub-hosted Ubuntu runner (containers + VMs), coexisting with the runner's Docker. |

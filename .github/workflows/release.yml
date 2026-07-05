@@ -23,9 +23,9 @@ jobs:
       contents: write   # create the release + move the alias tags
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}   # gh needs this without a checkout (it ignores GITHUB_REPOSITORY)
       TAG: ${{ github.ref_name }}
       SHA: ${{ github.sha }}
-      REPO: ${{ github.repository }}
     steps:
       # Immutable release for the exact version (repo setting "Immutable releases" must be enabled).
       - name: Create the release
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           case "$TAG" in *-*) echo "prerelease $TAG — leaving stable aliases untouched"; exit 0 ;; esac
           for alias in "${TAG%%.*}" "${TAG%.*}"; do
-            gh api -X PATCH "repos/$REPO/git/refs/tags/$alias" -f sha="$SHA" -F force=true \
-              || gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$alias" -f sha="$SHA"
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$alias" -f sha="$SHA" -F force=true \
+              || gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$alias" -f sha="$SHA"
             echo "moved $alias -> $SHA"
           done

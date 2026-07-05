@@ -17,8 +17,8 @@ inputs:
     description: 'Launch as a virtual machine instead of a system container (true/false)'
     required: false
   ephemeral:
-    default: 'false'
-    description: 'Make the instance ephemeral, so Incus deletes it when it stops (true/false)'
+    default: 'true'
+    description: 'Make the instance ephemeral, so Incus deletes it when it stops (true/false); set false to keep it after stop'
     required: false
   config:
     default: ''

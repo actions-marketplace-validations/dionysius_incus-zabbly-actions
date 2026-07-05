@@ -83,7 +83,6 @@ jobs:
         with:
           image: images:debian/trixie
           vm: ${{ matrix.type == 'vm' }}
-          ephemeral: true
           wait: exec
       - name: Delete the exec-wait probe (delete action)
         uses: ./delete
@@ -95,7 +94,6 @@ jobs:
         with:
           image: images:debian/trixie/cloud
           vm: ${{ matrix.type == 'vm' }}
-          ephemeral: true
           wait: cloud-init
 
       # exec smoke; apt-get update also proves outbound traffic through the DOCKER-USER-governed FORWARD path.

@@ -30,7 +30,7 @@ steps:
 | `image` | — (required) | Image to launch, e.g. `images:debian/trixie`. |
 | `name` | `''` | Name for the new instance. Empty lets Incus generate one, returned as the `name` output. |
 | `vm` | `false` | Launch as a virtual machine instead of a system container. |
-| `ephemeral` | `false` | Make the instance ephemeral — Incus deletes it when it stops. |
+| `ephemeral` | `true` | Make the instance ephemeral — Incus deletes it when it stops. Set `false` to keep it. |
 | `config` | `''` | Newline-separated `KEY=VALUE` instance config (each → `-c`), e.g. `limits.cpu=2`. |
 | `profiles` | `''` | Comma-separated profiles to apply (each → `-p`). |
 | `workspace` | `true` | Mount `$GITHUB_WORKSPACE` into the instance at the same path. |

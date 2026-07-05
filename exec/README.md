@@ -29,7 +29,7 @@ steps:
 | --- | --- | --- |
 | `instance` | — (required) | Name of the existing Incus instance to run in. |
 | `run` | — (required) | Shell script body to execute inside the instance. |
-| `shell` | `sh` | Interpreter inside the instance (`sh`-compatible: `sh`, `bash`, `dash`), invoked as `<shell> -e -s`. |
+| `shell` | `bash` | Interpreter inside the instance, invoked as `<shell> -e -s`. Defaults to `bash` to match a normal `run:` step; see [Shell](#notes) for instances without it. |
 | `cwd` | `''` | Working directory. If set, it's used; otherwise `$GITHUB_WORKSPACE` when shared into the instance (see [`launch`](../launch/README.md)'s `workspace`), else the instance default. |
 
 ## Outputs
@@ -39,6 +39,8 @@ steps:
 | `result` | Whatever the body wrote to `$INCUS_RESULT`. |
 
 ## Notes
+
+**Shell.** `incus exec` runs its argv directly, with no shell, so the body is fed to an explicit interpreter (`<shell> -e -s`, script on stdin). It defaults to `bash` so the body behaves like a normal `run:` step. Minimal images (Alpine, BusyBox) may ship no `bash` — set `shell: sh` (or `dash`) for those, and keep the body POSIX.
 
 **Environment in.** The runner's environment is forwarded into the instance automatically (minus shell vars like `PATH`/`HOME`), so `$GITHUB_SHA`, workflow `env:`, etc. are available inside the body. Anything exported inside (without `$GITHUB_ENV`) is not available in later steps.
 

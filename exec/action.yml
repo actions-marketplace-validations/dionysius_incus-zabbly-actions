@@ -12,8 +12,8 @@ inputs:
     description: 'Shell script body to execute inside the instance (mirrors a step''s run:)'
     required: true
   shell:
-    default: 'sh'
-    description: 'Interpreter inside the instance (sh-compatible: sh, bash, dash). Invoked as "<shell> -e -s", reading the script from stdin.'
+    default: 'bash'
+    description: 'Interpreter inside the instance, invoked as "<shell> -e -s" reading the script from stdin. Defaults to bash to match a normal run: step; set to sh (or dash) for instances without bash.'
     required: false
   cwd:
     default: ''

@@ -66,12 +66,14 @@ jobs:
           channel: ${{ matrix.channel }}
 
       - name: Report environment
+        env:
+          INCUS_VERSION: ${{ steps.setup.outputs.incus-version }}
         run: |
           {
             echo "### ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.channel }} / ${{ matrix.type }} — environment"
             echo '```'
             echo "runner:  $(. /etc/os-release; echo "$PRETTY_NAME") $(uname -m)"
-            echo "incus:   ${{ steps.setup.outputs.incus-version }}"
+            echo "incus:   $INCUS_VERSION"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
